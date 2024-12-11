@@ -63,7 +63,7 @@ Follow the instructions for Zephyr here: https://docs.zephyrproject.org/latest/d
 
 Follow the instructions for nRF Connect SDK here: https://docs.nordicsemi.com/bundle/ncs-latest/page/nrf/installation/install_ncs.html
 
-Be sure to note the location of your virtual environment. I use the /opt directory for my SDK and toolchain installations. 
+Be sure to note the location of your virtual environment. I use the /opt directory for toolchain installations and /opt/ncs for my SDK installations.
 
 ```
 ├── ncs
@@ -88,39 +88,81 @@ https://docs.zephyrproject.org/latest/develop/west/workspaces.html
 
 The following script is what I use to activate my virtual environments.
 
-```zsh
+```bash
 function actvenv_ncs() {
     local ncs_dir="/opt/ncs"
-    local version="$1"
     
-    if [[ -z "$version" ]]; then
-        # If no version is provided, find the highest numbered one
-        version=$(ls -d ${ncs_dir}/ncs-* | sort -V | tail -n 1 | xargs basename)
-    else
-        # If a version is provided, ensure it's prefixed with "ncs-v"
-        version="ncs-${version#ncs-}"
+    # Get all available versions
+    local versions=($(ls -d ${ncs_dir}/ncs-* 2>/dev/null | xargs -n1 basename))
+    
+    if [ ${#versions[@]} -eq 0 ]; then
+        echo "Error: No NCS versions found in ${ncs_dir}"
+        return 1
     fi
-    
+
+    # Display available versions with numbers
+    echo "Available NCS versions:"
+    for i in "${!versions[@]}"; do
+        echo "  $((i+1)). ${versions[$i]}"
+    done
+
+    # Prompt user for selection
+    echo -n "Select version (1-${#versions[@]}) or press Enter for latest: "
+    read selection
+
+    local version
+    if [ -z "$selection" ]; then
+        # If no selection, use the latest version
+        version=${versions[-1]}
+        echo "Using latest version: $version"
+    else
+        # Validate input is a number in range
+        if ! [[ "$selection" =~ ^[0-9]+$ ]] || \
+           [ "$selection" -lt 1 ] || \
+           [ "$selection" -gt ${#versions[@]} ]; then
+            echo "Error: Invalid selection"
+            return 1
+        fi
+        
+        # Arrays are 0-based, so subtract 1 from selection
+        version=${versions[$((selection-1))]}
+    fi
+
     local full_path="${ncs_dir}/${version}"
     
-    if [[ ! -d "$full_path" ]]; then
+    if [ ! -d "$full_path" ]; then
         echo "Error: Directory $full_path does not exist."
         return 1
     fi
     
-    source "${full_path}/venv/bin/activate" && source "${full_path}/zephyr/zephyr-env.sh" && source <(west completion zsh)
-    echo "Activated environment for ${version}"
+    echo "Activating environment for ${version}..."
+    source "${full_path}/venv/bin/activate" && \
+    source "${full_path}/zephyr/zephyr-env.sh" && \
+    source <(west completion bash)
+    echo "Successfully activated environment for ${version}"
 }
-
-# Add autocompletion
-_actvenv_ncs() {
-    local ncs_dir="/opt/ncs"
-    _values 'versions' ${ncs_dir}/ncs-*(/:t)
-}
-compdef _actvenv_ncs actvenv_ncs
 ```
 
 In short, it searches for matching virtual environments in the /opt/ncs directory, activates the virtual environment, sources the zephyr-environment.sh script (which tells west which SDK location to use), and enables west autocompletion.
 
+
 West autocomplete greatly assists in building! Hit tab with just a substring of your board target, among other things.
+
+You can stop here if you are a CLI user. I keep this script under /opt/ncs/actvenv_ncs.sh. To set this up in VS code, proceed to the next step.
+
+# Step 2: Configure VS Code
+
+Add the following to your workspace configuration, then launch a new terminal. You will be prompted to select which installation you'd like to use.
+
+```json
+{
+    "terminal.integrated.profiles.linux": {
+        "NCS Environment": {
+            "path": "bash",
+            "args": ["-c", "bash --rcfile <(echo '. ~/.bashrc; source /opt/ncs/actvenv_ncs.sh; your_function_name')"]
+        }
+    },
+    "terminal.integrated.defaultProfile.linux": "NCS Environment"
+}
+```
 
